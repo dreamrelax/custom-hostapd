@@ -12,6 +12,7 @@
 
 #ifdef CONFIG_DEBUG_SYSLOG
 #include <syslog.h>
+#include <time.h>
 #endif /* CONFIG_DEBUG_SYSLOG */
 
 #ifdef CONFIG_DEBUG_LINUX_TRACING
@@ -20,7 +21,6 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdio.h>
-#include <time.h>
 
 static FILE *wpa_debug_tracing_file = NULL;
 
