@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 static FILE *wpa_debug_tracing_file = NULL;
 
@@ -900,3 +901,154 @@ int str_to_debug_level(const char *s)
 		return MSG_ERROR;
 	return -1;
 }
+
+#define MAX_CALLBACKS 32
+
+typedef struct {
+  log_LogFn fn;
+  void *udata;
+  int level;
+} Callback;
+
+static struct {
+  void *udata;
+  log_LockFn lock;
+  int level;
+  bool quiet;
+  Callback callbacks[MAX_CALLBACKS];
+} L;
+
+static const char *level_strings[] = {
+	"EMERGENCY", "ALERT", "CRITICAL", "ERROR", "WARNING", "NOTICE", "INFO", "DEBUG", "NONE"
+};
+										/* Red,  Green,     Yellow,  Blue,   Purple */						
+static const char *level_colors[] = {
+	"\x1b[94m", "\x1b[36m", "\x1b[32m", "\x1b[31m", "\x1b[32m", "\x1b[33m", "\x1b[34m", "\x1b[35m"
+};
+
+static void syslog_callback(log_Event *ev) {
+	int len = strlen(ev->fmt) + 128;
+	char *msg = NULL;
+	msg = malloc(len);
+	if (!msg)
+		return;
+
+	vsnprintf(msg, len, ev->fmt, ev->ap);
+	openlog("hostapd", LOG_PID, LOG_DAEMON);
+	syslog(LOG_LOCAL0 | ev->level, "[WIFI.%d][%s@%s.%d]: Event: %s", ev->level, ev->file, ev->fun, ev->line, msg);
+	closelog();
+
+	fflush(ev->udata);
+	free(msg);
+}
+
+static void stdout_callback(log_Event *ev) {
+	int len = strlen(ev->fmt) + 128;
+	char *msg = NULL;
+	msg = malloc(len);
+	if (!msg)
+		return;
+
+    vsnprintf(msg, len, ev->fmt, ev->ap);
+    FILE *console=fopen("/dev/console","w");
+    fprintf(console, "%s[WIFI.%d][%s@%s.%d]: Event: %s \x1b[0m ", level_colors[ev->level], ev->level, ev->file, ev->fun, ev->line, msg);
+    fprintf(console,NONE "\n");
+    fflush(ev->udata);
+    free(msg);
+
+    if(console)
+        fclose(console);
+}
+
+
+static void file_callback(log_Event *ev) {
+  char buf[64];
+  buf[strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", ev->time)] = '\0';
+  fprintf(
+    ev->udata, "%s %-5s %s:%d: ",
+    buf, level_strings[ev->level], ev->file, ev->line);
+  vfprintf(ev->udata, ev->fmt, ev->ap);
+  fprintf(ev->udata, "\n");
+  fflush(ev->udata);
+}
+
+
+static void lock(void)   {
+  if (L.lock) { L.lock(true, L.udata); }
+}
+
+static void unlock(void) {
+  if (L.lock) { L.lock(false, L.udata); }
+}
+
+static void init_event(log_Event *ev, void *udata) {
+  if (!ev->time) {
+    time_t t = time(NULL);
+    ev->time = localtime(&t);
+  }
+  ev->udata = udata;
+}
+
+void eric_wlan_syslog_handler(int level, const char *file, const char *fun, int line, const char *fmt, ...)
+{
+	log_Event ev = {
+	  .fmt	 = fmt,
+	  .file  = file,
+	  .fun	 = fun,
+	  .line  = line,
+	  .level = level,
+	};
+	
+	lock();
+	
+	if (!L.quiet && level >= L.level) {
+	  init_event(&ev, stderr);
+	  va_start(ev.ap, fmt);
+	  syslog_callback(&ev);
+	  va_end(ev.ap);
+	}
+	
+	for (int i = 0; i < MAX_CALLBACKS && L.callbacks[i].fn; i++) {
+	  Callback *cb = &L.callbacks[i];
+	  if (level >= cb->level) {
+		init_event(&ev, cb->udata);
+		va_start(ev.ap, fmt);
+		cb->fn(&ev);
+		va_end(ev.ap);
+	  }
+	}
+	
+	unlock();
+}
+
+void eric_wlan_console_handler(int level, const char *file, const char *fun, int line, const char *fmt, ...) {
+  log_Event ev = {
+    .fmt   = fmt,
+    .file  = file,
+    .fun  = fun,
+    .line  = line,
+    .level = level,
+  };
+
+  lock();
+
+  if (!L.quiet && level >= L.level) {
+    init_event(&ev, stderr);
+    va_start(ev.ap, fmt);
+    stdout_callback(&ev);
+    va_end(ev.ap);
+  }
+
+  for (int i = 0; i < MAX_CALLBACKS && L.callbacks[i].fn; i++) {
+    Callback *cb = &L.callbacks[i];
+    if (level >= cb->level) {
+      init_event(&ev, cb->udata);
+      va_start(ev.ap, fmt);
+      cb->fn(&ev);
+      va_end(ev.ap);
+    }
+  }
+
+  unlock();
+}
+

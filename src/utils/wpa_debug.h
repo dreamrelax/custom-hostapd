@@ -368,4 +368,52 @@ static inline void wpa_debug_close_linux_tracing(void)
 const char * debug_level_str(int level);
 int str_to_debug_level(const char *s);
 
+typedef struct {
+  va_list ap;
+  const char *fmt;
+  const char *file;
+  const char *fun;
+  struct tm *time;
+  void *udata;
+  int line;
+  int level;
+} log_Event;
+
+typedef void (*log_LogFn)(log_Event *ev);
+typedef void (*log_LockFn)(bool lock, void *udata);
+
+#define ERIC_WLAN_SYSLOG(lv, ...) eric_wlan_syslog_handler(lv, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+#define ERIC_WLAN_CONSOLE(lv, ...) eric_wlan_console_handler(lv, __FILE__, __FUNCTION__, __LINE__, __VA_ARGS__)
+
+void eric_wlan_syslog_handler(int level, const char *file, const char *fun, int line, const char *fmt, ...);
+void eric_wlan_console_handler(int level, const char *file, const char *fun, int line, const char *fmt, ...);
+
+/* ARC_WLAN_SYSLOG_ACTION */
+#define ACTION_AUTH                 "Authentication"
+#define ACTION_DEAUTH				"De-authentication"
+#define ACTION_ASSOC_REQ            "Association Request"
+#define ACTION_ASSOC_RESP           "Association Response"
+#define ACTION_DISASSOC             "Disassociation"
+#define ACTION_REASSOC_REQ          "Reassocation Request"
+#define ACTION_REASSOC_RESP         "Reassocation Response"
+#define ACTION_EAPOL_HANDSHAKE      "EAPoL Handshake"
+#define ACTION_CONNECTIVITY         "Connectivity"
+/* ARC_WLAN_SYSLOG_RESULT */
+#define RESULT_SUCC                 "Success"
+#define RESULT_CANCEL               "Cancelled"
+#define RESULT_FAIL                 "Failed"
+
+typedef enum {
+	E_LEVEL_EMERGENCY 	= 0,
+	E_LEVEL_ALERT 		= 1,
+	E_LEVEL_CRITICAL 	= 2,
+	E_LEVEL_ERROR 		= 3,
+	E_LEVEL_WARNING 	= 4,
+	E_LEVEL_NOTICE 		= 5,
+	E_LEVEL_INFO 		= 6,
+	E_LEVEL_DEBUG 		= 7,
+	E_LEVEL_NONE					/* none, should be the last one */
+} eric_wlan_syslog_level_t;
+
+
 #endif /* WPA_DEBUG_H */
